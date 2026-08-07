@@ -214,6 +214,18 @@ body{
 }
 .add-row button:hover{opacity:0.88;}
 
+.section-label{
+  font-size:10.5px;color:var(--brass);letter-spacing:0.5px;font-weight:700;
+  margin:10px 0 4px;text-transform:none;
+}
+.section-label.task-label{color:var(--green);}
+.task-item{background:rgba(63,107,79,0.06);border-radius:5px;padding-right:4px;}
+.task-empty{font-size:12px;color:var(--ink-soft);padding:4px 2px;}
+.day-modal-tag{
+  font-family:'JetBrains Mono', monospace;font-size:9px;color:var(--green);
+  border:1px solid var(--green);border-radius:4px;padding:1px 5px;margin-right:4px;
+}
+
 .rating{
   display:flex;align-items:center;justify-content:space-between;
   margin-top:14px;padding-top:12px;border-top:1px solid var(--line);
@@ -330,7 +342,7 @@ const DIMENSIONS = [
 
 let config = null; // {items:{key:[{id,text}]}}
 let today = null;  // 'YYYY-MM-DD'
-let dayData = {checks:{}, ratings:{}, note:''};
+let dayData = {habitChecks:{}, ratings:{}, note:''};
 let cloudAvailable = false;
 
 function toast(msg){
@@ -425,11 +437,25 @@ async function loadConfig(){
 }
 
 function ensureConfigDefaults(){
-  if(!config.items || typeof config.items !== 'object') config.items = {};
   let patched = false;
+
+  // migrate the old flat "items" model into habits, once
+  if(config.items && typeof config.items === 'object' && !config.habits){
+    config.habits = config.items;
+    delete config.items;
+    patched = true;
+  }
+
+  if(!config.habits || typeof config.habits !== 'object') config.habits = {};
+  if(!config.tasks || typeof config.tasks !== 'object') config.tasks = {};
+
   DIMENSIONS.forEach(d=>{
-    if(!Array.isArray(config.items[d.key]) || config.items[d.key].length === 0){
-      config.items[d.key] = d.defaults.map(t=>({id:uid(), text:t}));
+    if(!Array.isArray(config.habits[d.key]) || config.habits[d.key].length === 0){
+      config.habits[d.key] = d.defaults.map(t=>({id:uid(), text:t}));
+      patched = true;
+    }
+    if(!Array.isArray(config.tasks[d.key])){
+      config.tasks[d.key] = [];
       patched = true;
     }
   });
@@ -443,9 +469,15 @@ async function saveConfig(){
 async function loadDay(key){
   try{
     const raw = await storageGetRaw('day:'+key);
-    return JSON.parse(raw);
+    const data = JSON.parse(raw);
+    // migrate old "checks" field (from the pre-habit/task split) to habitChecks
+    if(data.checks && !data.habitChecks) data.habitChecks = data.checks;
+    if(!data.habitChecks) data.habitChecks = {};
+    if(!data.ratings) data.ratings = {};
+    if(typeof data.note !== 'string') data.note = '';
+    return data;
   }catch(e){
-    return {checks:{}, ratings:{}, note:''};
+    return {habitChecks:{}, ratings:{}, note:''};
   }
 }
 
@@ -453,17 +485,31 @@ async function saveDay(key, data){
   return await storageSetRaw('day:'+key, JSON.stringify(data));
 }
 
+function tasksForToday(dimKey){
+  return (config.tasks[dimKey]||[]).filter(t => !t.done || t.doneDate===today);
+}
+
+async function toggleTask(dimKey, taskId, checked){
+  const t = (config.tasks[dimKey]||[]).find(x=>x.id===taskId);
+  if(!t) return;
+  t.done = checked;
+  t.doneDate = checked ? today : null;
+  await saveConfig();
+}
+
+
 function renderHeader(){
   document.getElementById('dateFa').textContent = jalaliFull(new Date());
   document.getElementById('manifestNo').textContent = 'MANIFEST NO. ' + today.replace(/-/g,'');
 }
 
 function allChecked(){
+  // "cleared" stamp is habit-based only — tasks are open-ended and shouldn't block it
   let total = 0, done = 0;
   DIMENSIONS.forEach(d=>{
-    (config.items[d.key]||[]).forEach(it=>{
+    (config.habits[d.key]||[]).forEach(it=>{
       total++;
-      if(dayData.checks[it.id]) done++;
+      if(dayData.habitChecks[it.id]) done++;
     });
   });
   return total>0 && done===total;
@@ -485,7 +531,8 @@ function renderHolds(){
   holds.innerHTML = '';
   DIMENSIONS.forEach(d=>{
    try{
-    const items = Array.isArray(config.items[d.key]) ? config.items[d.key] : [];
+    const habits = Array.isArray(config.habits[d.key]) ? config.habits[d.key] : [];
+    const tasks = tasksForToday(d.key);
     const card = document.createElement('div');
     card.className = 'hold';
 
@@ -494,23 +541,29 @@ function renderHolds(){
     head.innerHTML = `<span class="hold-title">${d.title}</span><span class="hold-code">${d.code}</span>`;
     card.appendChild(head);
 
-    items.forEach(it=>{
+    // ---- habits (reset every day, no rollover) ----
+    const habitLabel = document.createElement('div');
+    habitLabel.className = 'section-label';
+    habitLabel.textContent = 'عادت‌های روزانه';
+    card.appendChild(habitLabel);
+
+    habits.forEach(it=>{
       const row = document.createElement('div');
       row.className = 'item';
-      const checked = !!dayData.checks[it.id];
+      const checked = !!dayData.habitChecks[it.id];
       row.innerHTML = `
         <input type="checkbox" ${checked?'checked':''} data-id="${it.id}">
         <span class="${checked?'done':''}">${it.text}</span>
         <button class="del" data-id="${it.id}" data-dim="${d.key}">حذف</button>
       `;
       row.querySelector('input').addEventListener('change', (e)=>{
-        dayData.checks[it.id] = e.target.checked;
+        dayData.habitChecks[it.id] = e.target.checked;
         row.querySelector('span').classList.toggle('done', e.target.checked);
         updateStamp();
       });
       row.querySelector('.del').addEventListener('click', ()=>{
-        config.items[d.key] = config.items[d.key].filter(x=>x.id!==it.id);
-        delete dayData.checks[it.id];
+        config.habits[d.key] = config.habits[d.key].filter(x=>x.id!==it.id);
+        delete dayData.habitChecks[it.id];
         saveConfig();
         renderHolds();
         updateStamp();
@@ -518,22 +571,72 @@ function renderHolds(){
       card.appendChild(row);
     });
 
-    const addRow = document.createElement('div');
-    addRow.className = 'add-row';
-    addRow.innerHTML = `<input type="text" placeholder="آیتم جدید برای ${d.title}..." data-dim="${d.key}"><button data-dim="${d.key}">افزودن</button>`;
-    const input = addRow.querySelector('input');
-    const btn = addRow.querySelector('button');
-    const addItem = ()=>{
-      const val = input.value.trim();
+    const addHabitRow = document.createElement('div');
+    addHabitRow.className = 'add-row';
+    addHabitRow.innerHTML = `<input type="text" placeholder="عادت جدید برای ${d.title}..." data-dim="${d.key}"><button data-dim="${d.key}">افزودن</button>`;
+    const habitInput = addHabitRow.querySelector('input');
+    const habitBtn = addHabitRow.querySelector('button');
+    const addHabit = ()=>{
+      const val = habitInput.value.trim();
       if(!val) return;
-      config.items[d.key].push({id:uid(), text:val});
-      input.value='';
+      config.habits[d.key].push({id:uid(), text:val});
+      habitInput.value='';
       saveConfig();
       renderHolds();
     };
-    btn.addEventListener('click', addItem);
-    input.addEventListener('keydown', (e)=>{ if(e.key==='Enter') addItem(); });
-    card.appendChild(addRow);
+    habitBtn.addEventListener('click', addHabit);
+    habitInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') addHabit(); });
+    card.appendChild(addHabitRow);
+
+    // ---- tasks (persist / roll over until done) ----
+    const taskLabel = document.createElement('div');
+    taskLabel.className = 'section-label task-label';
+    taskLabel.textContent = 'کارها (اگه انجام نشه، خودش فردا هم می‌مونه)';
+    card.appendChild(taskLabel);
+
+    if(tasks.length===0){
+      const empty = document.createElement('div');
+      empty.className = 'task-empty';
+      empty.textContent = 'کاری ثبت نشده';
+      card.appendChild(empty);
+    }
+
+    tasks.forEach(t=>{
+      const row = document.createElement('div');
+      row.className = 'item task-item';
+      row.innerHTML = `
+        <input type="checkbox" ${t.done?'checked':''} data-id="${t.id}">
+        <span class="${t.done?'done':''}">${t.text}</span>
+        <button class="del" data-id="${t.id}" data-dim="${d.key}">حذف</button>
+      `;
+      row.querySelector('input').addEventListener('change', async (e)=>{
+        await toggleTask(d.key, t.id, e.target.checked);
+        renderHolds();
+      });
+      row.querySelector('.del').addEventListener('click', ()=>{
+        config.tasks[d.key] = config.tasks[d.key].filter(x=>x.id!==t.id);
+        saveConfig();
+        renderHolds();
+      });
+      card.appendChild(row);
+    });
+
+    const addTaskRow = document.createElement('div');
+    addTaskRow.className = 'add-row';
+    addTaskRow.innerHTML = `<input type="text" placeholder="کار جدید برای ${d.title}..." data-dim="${d.key}"><button data-dim="${d.key}">افزودن</button>`;
+    const taskInput = addTaskRow.querySelector('input');
+    const taskBtn = addTaskRow.querySelector('button');
+    const addTask = ()=>{
+      const val = taskInput.value.trim();
+      if(!val) return;
+      config.tasks[d.key].push({id:uid(), text:val, done:false, doneDate:null, createdDate:today});
+      taskInput.value='';
+      saveConfig();
+      renderHolds();
+    };
+    taskBtn.addEventListener('click', addTask);
+    taskInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') addTask(); });
+    card.appendChild(addTaskRow);
 
     const rating = document.createElement('div');
     rating.className = 'rating';
@@ -559,10 +662,11 @@ function renderHolds(){
 }
 
 async function getDayRatio(k){
+  // streak/week-strip are habit-based only, same reasoning as the stamp
   const data = k===today ? dayData : await loadDay(k);
   let total=0, done=0;
   DIMENSIONS.forEach(d=>{
-    (config.items[d.key]||[]).forEach(it=>{ total++; if(data.checks[it.id]) done++; });
+    (config.habits[d.key]||[]).forEach(it=>{ total++; if(data.habitChecks[it.id]) done++; });
   });
   return total>0 ? done/total : 0;
 }
@@ -607,6 +711,7 @@ async function renderWeek(){
 
 async function showDayModal(k){
   const data = k===today ? dayData : await loadDay(k);
+  const habitChecks = data.habitChecks || data.checks || {};
   const overlay = document.createElement('div');
   overlay.className = 'day-modal-overlay';
 
@@ -618,16 +723,20 @@ async function showDayModal(k){
       </div>
   `;
   DIMENSIONS.forEach(d=>{
-    const items = config.items[d.key] || [];
+    const habits = config.habits[d.key] || [];
+    const tasksDoneThatDay = (config.tasks[d.key]||[]).filter(t=>t.done && t.doneDate===k);
     html += `<div class="day-modal-dim"><div class="day-modal-dim-title">${d.title}`;
     if(data.ratings && data.ratings[d.key]) html += ` <span class="day-modal-rate">${data.ratings[d.key]}/5</span>`;
     html += `</div>`;
-    if(items.length===0){
+    if(habits.length===0 && tasksDoneThatDay.length===0){
       html += `<div class="day-modal-empty">آیتمی ثبت نشده</div>`;
     }
-    items.forEach(it=>{
-      const done = !!(data.checks && data.checks[it.id]);
+    habits.forEach(it=>{
+      const done = !!habitChecks[it.id];
       html += `<div class="day-modal-item ${done?'done':''}">${done?'✓':'○'} ${it.text}</div>`;
+    });
+    tasksDoneThatDay.forEach(t=>{
+      html += `<div class="day-modal-item done">✓ ${t.text} <span class="day-modal-tag">کار</span></div>`;
     });
     html += `</div>`;
   });
@@ -717,10 +826,11 @@ function attachListeners(){
     let lines = [];
     lines.push('گزارش روزانه — ' + today);
     DIMENSIONS.forEach(d=>{
-      const items = config.items[d.key]||[];
-      const done = items.filter(it=>dayData.checks[it.id]).length;
+      const habits = config.habits[d.key]||[];
+      const doneHabits = habits.filter(it=>dayData.habitChecks[it.id]).length;
+      const tasksDoneToday = (config.tasks[d.key]||[]).filter(t=>t.done && t.doneDate===today).length;
       const rate = dayData.ratings[d.key] ? ` | امتیاز: ${dayData.ratings[d.key]}/5` : '';
-      lines.push(`${d.title}: ${done}/${items.length}${rate}`);
+      lines.push(`${d.title}: عادت ${doneHabits}/${habits.length} | کار انجام‌شده امروز: ${tasksDoneToday}${rate}`);
     });
     if(dayData.note) lines.push('یادداشت: ' + dayData.note);
     const text = lines.join('\n');
@@ -750,9 +860,9 @@ async function init(){
 
   // Step 1 — render instantly with in-memory defaults. The checklist must
   // never sit blank while waiting on a network call.
-  config = {items:{}};
+  config = {habits:{}, tasks:{}};
   ensureConfigDefaults();
-  dayData = {checks:{}, ratings:{}, note:''};
+  dayData = {habitChecks:{}, ratings:{}, note:''};
   renderHeader();
   renderHolds();
   document.getElementById('weekStrip').innerHTML = '<span class="week-label">۷ روز اخیر:</span>';
