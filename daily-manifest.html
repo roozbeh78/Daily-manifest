@@ -205,6 +205,12 @@ body{
   border-radius:6px;padding:7px 14px;font-family:inherit;font-size:13px;cursor:pointer;
 }
 .add-row button:hover{opacity:0.88;}
+.add-task-row{flex-wrap:wrap;align-items:center;}
+.tomorrow-toggle{
+  display:flex;align-items:center;gap:4px;font-size:11.5px;color:var(--ink-soft);
+  white-space:nowrap;cursor:pointer;
+}
+.tomorrow-toggle input{width:14px;height:14px;accent-color:var(--green);cursor:pointer;}
 
 .section-label{
   font-size:10.5px;color:var(--brass);letter-spacing:0.5px;font-weight:700;
@@ -264,6 +270,45 @@ body{
   text-align:center;font-size:11px;color:var(--ink-soft);margin-top:24px;
   font-family:'JetBrains Mono', monospace;letter-spacing:0.5px;
 }
+
+/* ---------- page nav ---------- */
+.page-nav{display:flex;gap:8px;margin:16px 0;}
+.page-tab{
+  border:1.4px solid var(--ink);background:transparent;color:var(--ink);
+  border-radius:8px;padding:8px 16px;font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer;
+}
+.page-tab.active{background:var(--ink);color:var(--paper);}
+
+/* ---------- planner page ---------- */
+.planner-form{
+  display:flex;gap:8px;flex-wrap:wrap;align-items:center;
+  border:1px dashed var(--line);border-radius:10px;padding:14px;margin-bottom:18px;background:var(--card);
+}
+.planner-form select, .planner-form input[type=text], .planner-form input[type=date]{
+  border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-family:inherit;font-size:13px;background:#fff;color:var(--ink);
+}
+.planner-form input[type=text]{flex:1;min-width:160px;}
+.planner-form button{
+  border:1px solid var(--brass);background:var(--brass);color:#fff;border-radius:6px;
+  padding:8px 16px;font-family:inherit;font-size:13px;cursor:pointer;
+}
+.planner-group{margin-bottom:16px;}
+.planner-date-label{
+  font-family:'JetBrains Mono', monospace;font-size:11px;color:var(--brass);
+  letter-spacing:0.5px;margin-bottom:6px;
+}
+.planner-item{
+  display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);
+  border-radius:8px;padding:9px 12px;margin-bottom:6px;
+}
+.planner-item .dim-tag{
+  font-family:'JetBrains Mono', monospace;font-size:10px;color:var(--ink-soft);
+  border:1px solid var(--line);border-radius:4px;padding:2px 6px;flex-shrink:0;
+}
+.planner-item .planner-text{flex:1;font-size:13.5px;}
+.planner-item .planner-del{border:none;background:none;color:var(--red);cursor:pointer;font-size:12px;opacity:0.7;}
+.planner-item .planner-del:hover{opacity:1;}
+.planner-empty{text-align:center;color:var(--ink-soft);font-size:13px;padding:30px 10px;}
 </style>
 </head>
 <body>
@@ -282,31 +327,40 @@ body{
     </div>
   </div>
 
-  <div class="week" id="weekStrip">
-    <span class="week-label">۷ روز اخیر:</span>
+  <div class="page-nav">
+    <button class="page-tab active" id="navToday">امروز</button>
+    <button class="page-tab" id="navPlanner">کارهای برنامه‌ریزی‌شده</button>
   </div>
 
-  <div class="grid" id="holds"></div>
+  <div id="todayView">
+    <div class="week" id="weekStrip">
+      <span class="week-label">۷ روز اخیر:</span>
+    </div>
 
-  <div class="note-card">
-    <div class="note-title">یادداشت امروز</div>
-    <textarea id="dayNote" placeholder="یک خط درباره‌ی امروز — چی خوب پیش رفت، چی نه..."></textarea>
+    <div class="grid" id="holds"></div>
+
+    <div class="note-card">
+      <div class="note-title">یادداشت امروز</div>
+      <textarea id="dayNote" placeholder="یک خط درباره‌ی امروز — چی خوب پیش رفت، چی نه..."></textarea>
+    </div>
+
+    <div class="actions">
+      <button class="btn primary" id="saveBtn">ذخیره‌ی فوری (اختیاری — خودش خودکار ذخیره می‌شه)</button>
+      <button class="btn ghost" id="reportBtn">کپی گزارش برای شریک پاسخگویی</button>
+      <button class="btn ghost" id="exportBtn">دانلود فایل پشتیبان</button>
+      <button class="btn ghost" id="importBtn">بارگذاری فایل پشتیبان</button>
+      <input type="file" id="importFile" accept="application/json" style="display:none;">
+    </div>
+    <div class="footnote" style="margin-top:6px;">
+      این‌جا هرجا که بازش کنی (توی چت، یا نسخه‌ی هاست‌شده) داده‌هاش جدا و محلیه.
+      برای یکسان نگه‌داشتن نتیجه بین دستگاه‌ها/محیط‌ها: هر چند وقت یه‌بار «دانلود فایل پشتیبان» رو بزن،
+      و همون فایل رو توی محیط دیگه با «بارگذاری فایل پشتیبان» وارد کن.
+    </div>
+
+    <div class="footnote">هر آیتم رو می‌تونی ویرایش، حذف یا اضافه کنی — این سیستم مال خودته</div>
   </div>
 
-  <div class="actions">
-    <button class="btn primary" id="saveBtn">ثبت وضعیت امروز</button>
-    <button class="btn ghost" id="reportBtn">کپی گزارش برای شریک پاسخگویی</button>
-    <button class="btn ghost" id="exportBtn">دانلود فایل پشتیبان</button>
-    <button class="btn ghost" id="importBtn">بارگذاری فایل پشتیبان</button>
-    <input type="file" id="importFile" accept="application/json" style="display:none;">
-  </div>
-  <div class="footnote" style="margin-top:6px;">
-    این‌جا هرجا که بازش کنی (توی چت، یا نسخه‌ی هاست‌شده) داده‌هاش جدا و محلیه.
-    برای یکسان نگه‌داشتن نتیجه بین دستگاه‌ها/محیط‌ها: هر چند وقت یه‌بار «دانلود فایل پشتیبان» رو بزن،
-    و همون فایل رو توی محیط دیگه با «بارگذاری فایل پشتیبان» وارد کن.
-  </div>
-
-  <div class="footnote">هر آیتم رو می‌تونی ویرایش، حذف یا اضافه کنی — این سیستم مال خودته</div>
+  <div id="plannerView" style="display:none;"></div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -314,16 +368,21 @@ body{
 <script>
 const DIMENSIONS = [
   {key:'professional', title:'حرفه‌ای', code:'PRO-01', defaults:[
-    
+    'یک قدم برای مستندسازی/فرایندی‌کردن مجموعه برداشتم',
+    'وضعیت واردات/گمرک رو چک کردم',
+    'با یک مشتری، تامین‌کننده یا آدم جدید تعامل داشتم'
   ]},
   {key:'personal', title:'شخصی', code:'PER-02', defaults:[
-   
+    'زمانی برای یادگیری یا رشد فردی گذاشتم',
+    'فعالیت بدنی یا ورزش داشتم'
   ]},
   {key:'emotional', title:'عاطفی', code:'EMO-03', defaults:[
-   
+    'صادقانه حال خودم رو چک کردم',
+    'کاری برای آرامش ذهنی انجام دادم'
   ]},
   {key:'family', title:'خانواده', code:'FAM-04', defaults:[
-    
+    'زمان با خانواده گذروندم',
+    'یک گفتگوی معنادار با یکی از اعضای خانواده داشتم'
   ]}
 ];
 
@@ -331,6 +390,7 @@ let config = null; // {items:{key:[{id,text}]}}
 let today = null;  // 'YYYY-MM-DD'
 let dayData = {habitChecks:{}, ratings:{}, note:''};
 let cloudAvailable = false;
+let currentView = 'today';
 
 function toast(msg){
   const t = document.getElementById('toast');
@@ -450,7 +510,9 @@ function ensureConfigDefaults(){
 }
 
 async function saveConfig(){
-  await storageSetRaw('config', JSON.stringify(config));
+  const ok = await storageSetRaw('config', JSON.stringify(config));
+  if(!ok) toast('ذخیره نشد — دوباره امتحان کن');
+  return ok;
 }
 
 async function loadDay(key){
@@ -472,8 +534,29 @@ async function saveDay(key, data){
   return await storageSetRaw('day:'+key, JSON.stringify(data));
 }
 
+// ---- auto-save for today's habit checks / ratings / note ----
+let autoSaveTimer = null;
+function scheduleAutoSave(){
+  if(autoSaveTimer) clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(async ()=>{
+    const ok = await saveDay(today, dayData);
+    if(!ok) toast('ذخیره‌ی خودکار انجام نشد — دوباره امتحان می‌کنم');
+    await renderWeek();
+  }, 600);
+}
+
+
+function addDaysKey(baseKey, n){
+  const d = dateFromKey(baseKey);
+  d.setDate(d.getDate()+n);
+  return localDateKey(d);
+}
+
 function tasksForToday(dimKey){
-  return (config.tasks[dimKey]||[]).filter(t => !t.done || t.doneDate===today);
+  return (config.tasks[dimKey]||[]).filter(t => {
+    if(t.startDate && t.startDate > today) return false; // scheduled for a later day, not visible yet
+    return !t.done || t.doneDate===today;
+  });
 }
 
 async function toggleTask(dimKey, taskId, checked){
@@ -547,6 +630,7 @@ function renderHolds(){
         dayData.habitChecks[it.id] = e.target.checked;
         row.querySelector('span').classList.toggle('done', e.target.checked);
         updateStamp();
+        scheduleAutoSave();
       });
       row.querySelector('.del').addEventListener('click', ()=>{
         config.habits[d.key] = config.habits[d.key].filter(x=>x.id!==it.id);
@@ -616,7 +700,7 @@ function renderHolds(){
     const addTask = ()=>{
       const val = taskInput.value.trim();
       if(!val) return;
-      config.tasks[d.key].push({id:uid(), text:val, done:false, doneDate:null, createdDate:today});
+      config.tasks[d.key].push({id:uid(), text:val, done:false, doneDate:null, createdDate:today, startDate:null});
       taskInput.value='';
       saveConfig();
       renderHolds();
@@ -636,6 +720,7 @@ function renderHolds(){
       b.addEventListener('click', ()=>{
         dayData.ratings[d.key] = parseInt(b.dataset.n);
         renderHolds();
+        scheduleAutoSave();
       });
     });
     card.appendChild(rating);
@@ -798,9 +883,100 @@ async function importBackup(file){
   }
 }
 
+function switchView(view){
+  currentView = view;
+  document.getElementById('navToday').classList.toggle('active', view==='today');
+  document.getElementById('navPlanner').classList.toggle('active', view==='planner');
+  document.getElementById('todayView').style.display = view==='today' ? '' : 'none';
+  document.getElementById('plannerView').style.display = view==='planner' ? '' : 'none';
+  if(view==='planner') renderPlanner();
+}
+
+function renderPlanner(){
+  const wrap = document.getElementById('plannerView');
+  wrap.innerHTML = '';
+
+  const form = document.createElement('div');
+  form.className = 'planner-form';
+  const dimOpts = DIMENSIONS.map(d=>`<option value="${d.key}">${d.title}</option>`).join('');
+  form.innerHTML = `
+    <select id="plannerDim">${dimOpts}</select>
+    <input type="text" id="plannerText" placeholder="کار جدید...">
+    <input type="date" id="plannerDate" min="${addDaysKey(today,1)}" value="${addDaysKey(today,1)}">
+    <button id="plannerAdd">افزودن</button>
+  `;
+  wrap.appendChild(form);
+
+  const addPlanned = ()=>{
+    const dim = document.getElementById('plannerDim').value;
+    const text = document.getElementById('plannerText').value.trim();
+    const date = document.getElementById('plannerDate').value;
+    if(!text || !date) return;
+    config.tasks[dim].push({id:uid(), text, done:false, doneDate:null, createdDate:today, startDate:date});
+    document.getElementById('plannerText').value='';
+    saveConfig();
+    renderPlanner();
+  };
+  document.getElementById('plannerAdd').addEventListener('click', addPlanned);
+  document.getElementById('plannerText').addEventListener('keydown', (e)=>{ if(e.key==='Enter') addPlanned(); });
+
+  // gather all future-scheduled tasks (startDate in the future, not yet visible in today's view)
+  let scheduled = [];
+  DIMENSIONS.forEach(d=>{
+    (config.tasks[d.key]||[]).forEach(t=>{
+      if(t.startDate && t.startDate > today && !t.done){
+        scheduled.push({...t, dim:d.key, dimTitle:d.title});
+      }
+    });
+  });
+  scheduled.sort((a,b)=> a.startDate.localeCompare(b.startDate));
+
+  if(scheduled.length===0){
+    const empty = document.createElement('div');
+    empty.className = 'planner-empty';
+    empty.textContent = 'هنوز کاری برای روزهای بعد برنامه‌ریزی نکردی.';
+    wrap.appendChild(empty);
+    return;
+  }
+
+  const groups = {};
+  scheduled.forEach(t=>{
+    if(!groups[t.startDate]) groups[t.startDate] = [];
+    groups[t.startDate].push(t);
+  });
+
+  Object.keys(groups).forEach(dateKey=>{
+    const group = document.createElement('div');
+    group.className = 'planner-group';
+    const label = document.createElement('div');
+    label.className = 'planner-date-label';
+    label.textContent = jalaliFull(dateFromKey(dateKey));
+    group.appendChild(label);
+
+    groups[dateKey].forEach(t=>{
+      const row = document.createElement('div');
+      row.className = 'planner-item';
+      row.innerHTML = `
+        <span class="dim-tag">${t.dimTitle}</span>
+        <span class="planner-text">${t.text}</span>
+        <button class="planner-del">حذف</button>
+      `;
+      row.querySelector('.planner-del').addEventListener('click', async ()=>{
+        config.tasks[t.dim] = config.tasks[t.dim].filter(x=>x.id!==t.id);
+        const ok = await saveConfig();
+        if(ok) toast('حذف شد');
+        renderPlanner();
+      });
+      group.appendChild(row);
+    });
+    wrap.appendChild(group);
+  });
+}
+
 function attachListeners(){
   document.getElementById('dayNote').addEventListener('input', (e)=>{
     dayData.note = e.target.value;
+    scheduleAutoSave();
   });
 
   document.getElementById('saveBtn').addEventListener('click', async ()=>{
@@ -839,6 +1015,9 @@ function attachListeners(){
     if(file) importBackup(file);
     e.target.value = '';
   });
+
+  document.getElementById('navToday').addEventListener('click', ()=> switchView('today'));
+  document.getElementById('navPlanner').addEventListener('click', ()=> switchView('planner'));
 }
 
 async function init(){
