@@ -217,12 +217,32 @@ body{
   margin:10px 0 4px;text-transform:none;
 }
 .section-label.task-label{color:var(--green);}
+.section-label-row{
+  display:flex;justify-content:space-between;align-items:center;margin:10px 0 4px;
+}
+.section-label-row .section-label{margin:0;}
+.schedule-link{
+  border:none;background:none;color:var(--ink-soft);font-family:inherit;font-size:10.5px;
+  cursor:pointer;text-decoration:underline;padding:0;
+}
+.schedule-link:hover{color:var(--brass);}
 .task-item{background:rgba(63,107,79,0.06);border-radius:5px;padding-right:4px;}
 .task-empty{font-size:12px;color:var(--ink-soft);padding:4px 2px;}
 .day-modal-tag{
   font-family:'JetBrains Mono', monospace;font-size:9px;color:var(--green);
   border:1px solid var(--green);border-radius:4px;padding:1px 5px;margin-right:4px;
 }
+.schedule-modal .schedule-row{
+  margin-bottom:12px;padding-bottom:12px;border-bottom:1px dashed var(--line);
+}
+.schedule-row:last-child{border-bottom:none;}
+.schedule-row-text{font-size:13px;margin-bottom:6px;}
+.day-picker{display:flex;gap:5px;}
+.day-chip{
+  width:26px;height:26px;border-radius:50%;border:1px solid var(--line);background:#fff;
+  font-family:'JetBrains Mono', monospace;font-size:11px;color:var(--ink-soft);cursor:pointer;
+}
+.day-chip.active{background:var(--brass);border-color:var(--brass);color:#fff;}
 
 .rating{
   display:flex;align-items:center;justify-content:space-between;
@@ -410,6 +430,21 @@ function dateFromKey(k){
   return new Date(k + 'T00:00:00');
 }
 
+// weekday chips shown in Persian week order (Saturday first); values are JS Date.getDay()
+const WEEKDAYS = [
+  {v:6, label:'ش'}, {v:0, label:'ی'}, {v:1, label:'د'}, {v:2, label:'س'},
+  {v:3, label:'چ'}, {v:4, label:'پ'}, {v:5, label:'ج'}
+];
+
+function habitAppliesOnDate(habit, dateKey){
+  if(!habit.days || !Array.isArray(habit.days) || habit.days.length===0) return true; // no restriction = every day
+  return habit.days.includes(dateFromKey(dateKey).getDay());
+}
+
+function habitsForDate(dimKey, dateKey){
+  return (config.habits[dimKey]||[]).filter(h => habitAppliesOnDate(h, dateKey));
+}
+
 function jalaliDayNum(dateObj){
   try{
     return new Intl.DateTimeFormat('fa-IR-u-ca-persian', {day:'numeric'}).format(dateObj);
@@ -577,7 +612,7 @@ function allChecked(){
   // "cleared" stamp is habit-based only — tasks are open-ended and shouldn't block it
   let total = 0, done = 0;
   DIMENSIONS.forEach(d=>{
-    (config.habits[d.key]||[]).forEach(it=>{
+    habitsForDate(d.key, today).forEach(it=>{
       total++;
       if(dayData.habitChecks[it.id]) done++;
     });
@@ -601,7 +636,7 @@ function renderHolds(){
   holds.innerHTML = '';
   DIMENSIONS.forEach(d=>{
    try{
-    const habits = Array.isArray(config.habits[d.key]) ? config.habits[d.key] : [];
+    const habits = habitsForDate(d.key, today);
     const tasks = tasksForToday(d.key);
     const card = document.createElement('div');
     card.className = 'hold';
@@ -611,11 +646,19 @@ function renderHolds(){
     head.innerHTML = `<span class="hold-title">${d.title}</span><span class="hold-code">${d.code}</span>`;
     card.appendChild(head);
 
-    // ---- habits (reset every day, no rollover) ----
-    const habitLabel = document.createElement('div');
-    habitLabel.className = 'section-label';
-    habitLabel.textContent = 'عادت‌های روزانه';
-    card.appendChild(habitLabel);
+    // ---- habits (reset every day, only the ones scheduled for today, no rollover) ----
+    const habitLabelRow = document.createElement('div');
+    habitLabelRow.className = 'section-label-row';
+    habitLabelRow.innerHTML = `<span class="section-label">عادت‌های امروز</span><button class="schedule-link" data-dim="${d.key}">زمان‌بندی عادت‌ها</button>`;
+    habitLabelRow.querySelector('.schedule-link').addEventListener('click', ()=> showScheduleModal(d.key));
+    card.appendChild(habitLabelRow);
+
+    if(habits.length===0){
+      const empty = document.createElement('div');
+      empty.className = 'task-empty';
+      empty.textContent = 'برای امروز عادتی زمان‌بندی نشده';
+      card.appendChild(empty);
+    }
 
     habits.forEach(it=>{
       const row = document.createElement('div');
@@ -650,7 +693,7 @@ function renderHolds(){
     const addHabit = ()=>{
       const val = habitInput.value.trim();
       if(!val) return;
-      config.habits[d.key].push({id:uid(), text:val});
+      config.habits[d.key].push({id:uid(), text:val, days:[]});
       habitInput.value='';
       saveConfig();
       renderHolds();
@@ -738,7 +781,7 @@ async function getDayRatio(k){
   const data = k===today ? dayData : await loadDay(k);
   let total=0, done=0;
   DIMENSIONS.forEach(d=>{
-    (config.habits[d.key]||[]).forEach(it=>{ total++; if(data.habitChecks[it.id]) done++; });
+    habitsForDate(d.key, k).forEach(it=>{ total++; if(data.habitChecks[it.id]) done++; });
   });
   return total>0 ? done/total : 0;
 }
@@ -781,6 +824,62 @@ async function renderWeek(){
   document.getElementById('streakNum').textContent = streak;
 }
 
+function showScheduleModal(dimKey){
+  const dim = DIMENSIONS.find(d=>d.key===dimKey);
+  const overlay = document.createElement('div');
+  overlay.className = 'day-modal-overlay';
+
+  const render = ()=>{
+    const habits = config.habits[dimKey] || [];
+    let html = `
+      <div class="day-modal schedule-modal">
+        <div class="day-modal-head">
+          <span>زمان‌بندی عادت‌ها — ${dim.title}</span>
+          <button class="day-modal-close">✕</button>
+        </div>
+    `;
+    if(habits.length===0){
+      html += `<div class="day-modal-empty">هنوز عادتی برای این دسته نساختی</div>`;
+    }
+    habits.forEach(h=>{
+      const activeDays = (h.days && h.days.length>0) ? h.days : WEEKDAYS.map(w=>w.v);
+      html += `<div class="schedule-row" data-id="${h.id}">
+        <div class="schedule-row-text">${h.text}</div>
+        <div class="day-picker">
+          ${WEEKDAYS.map(w=>`<button class="day-chip ${activeDays.includes(w.v)?'active':''}" data-v="${w.v}">${w.label}</button>`).join('')}
+        </div>
+      </div>`;
+    });
+    html += `</div>`;
+    overlay.innerHTML = html;
+
+    overlay.querySelector('.day-modal-close').addEventListener('click', ()=> overlay.remove());
+    overlay.querySelectorAll('.schedule-row').forEach(row=>{
+      const habitId = row.dataset.id;
+      const habit = habits.find(h=>h.id===habitId);
+      row.querySelectorAll('.day-chip').forEach(chip=>{
+        chip.addEventListener('click', ()=>{
+          const v = parseInt(chip.dataset.v);
+          let days = (habit.days && habit.days.length>0) ? [...habit.days] : WEEKDAYS.map(w=>w.v);
+          if(days.includes(v)){
+            days = days.filter(x=>x!==v);
+          } else {
+            days.push(v);
+          }
+          // if every day ends up selected, store as [] (meaning "every day", simplest form)
+          habit.days = (days.length===7) ? [] : days;
+          saveConfig();
+          chip.classList.toggle('active');
+          renderHolds();
+        });
+      });
+    });
+  };
+  render();
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e)=>{ if(e.target===overlay) overlay.remove(); });
+}
+
 async function showDayModal(k){
   const data = k===today ? dayData : await loadDay(k);
   const habitChecks = data.habitChecks || data.checks || {};
@@ -795,7 +894,7 @@ async function showDayModal(k){
       </div>
   `;
   DIMENSIONS.forEach(d=>{
-    const habits = config.habits[d.key] || [];
+    const habits = habitsForDate(d.key, k);
     const tasksDoneThatDay = (config.tasks[d.key]||[]).filter(t=>t.done && t.doneDate===k);
     html += `<div class="day-modal-dim"><div class="day-modal-dim-title">${d.title}`;
     if(data.ratings && data.ratings[d.key]) html += ` <span class="day-modal-rate">${data.ratings[d.key]}/5</span>`;
@@ -989,7 +1088,7 @@ function attachListeners(){
     let lines = [];
     lines.push('گزارش روزانه — ' + today);
     DIMENSIONS.forEach(d=>{
-      const habits = config.habits[d.key]||[];
+      const habits = habitsForDate(d.key, today);
       const doneHabits = habits.filter(it=>dayData.habitChecks[it.id]).length;
       const tasksDoneToday = (config.tasks[d.key]||[]).filter(t=>t.done && t.doneDate===today).length;
       const rate = dayData.ratings[d.key] ? ` | امتیاز: ${dayData.ratings[d.key]}/5` : '';
