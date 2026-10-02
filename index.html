@@ -81,28 +81,6 @@ body{
   margin-top:4px;
   letter-spacing:1px;
 }
-.stamp{
-  font-family:'JetBrains Mono', monospace;
-  border:3px solid;
-  border-radius:8px;
-  padding:8px 16px;
-  font-weight:700;
-  font-size:13px;
-  letter-spacing:2px;
-  transform:rotate(-6deg);
-  text-transform:uppercase;
-  white-space:nowrap;
-}
-.stamp.cleared{border-color:#7FBF9B;color:#7FBF9B;}
-.stamp.pending{border-color:#D9A441;color:#D9A441;}
-
-.streak-box{
-  text-align:left;
-  font-family:'JetBrains Mono', monospace;
-}
-.streak-num{font-size:26px;font-weight:700;color:#E9B872;}
-.streak-label{font-size:10px;letter-spacing:2px;color:#B7AE93;text-transform:uppercase;}
-
 /* ---------- Weekly strip ---------- */
 .week{
   display:flex;
@@ -120,7 +98,9 @@ body{
   font-size:10px;color:var(--ink-soft);
 }
 .week-dot.full{background:var(--green);border-color:var(--green);color:#fff;}
-.week-dot.partial{background:#E9CD8E;border-color:#D9A441;color:var(--ink);}
+.week-dot.r-high{background:#A9D8B6;border-color:#6FAE82;color:var(--ink);}
+.week-dot.r-mid{background:#E9CD8E;border-color:#D9A441;color:var(--ink);}
+.week-dot.r-low{background:#F0DCC4;border-color:#D9B47E;color:var(--ink);}
 .week-dot:hover{outline:2px solid var(--brass);}
 
 /* ---------- Day detail modal ---------- */
@@ -235,6 +215,11 @@ body{
 }
 .schedule-link:hover{color:var(--brass);}
 .task-item{background:rgba(63,107,79,0.06);border-radius:5px;padding-right:4px;}
+.task-age{
+  font-family:'JetBrains Mono', monospace;font-size:9.5px;color:var(--ink-soft);
+  border:1px solid var(--line);border-radius:4px;padding:1px 6px;flex-shrink:0;white-space:nowrap;
+}
+.task-age.warn{color:var(--red);border-color:var(--red);}
 .task-empty{font-size:12px;color:var(--ink-soft);padding:4px 2px;}
 .day-modal-tag{
   font-family:'JetBrains Mono', monospace;font-size:9px;color:var(--green);
@@ -347,11 +332,6 @@ body{
       <div class="header-title">مانیفست روزانه — بار زندگی</div>
       <div class="header-date" id="dateFa"></div>
       <div class="manifest-no" id="manifestNo"></div>
-    </div>
-    <div id="stampBox" class="stamp pending">در حال بارگیری</div>
-    <div class="streak-box">
-      <div class="streak-num" id="streakNum">0</div>
-      <div class="streak-label">روز پیاپی</div>
     </div>
   </div>
 
@@ -595,6 +575,18 @@ function addDaysKey(baseKey, n){
   return localDateKey(d);
 }
 
+function faNum(n){
+  try{ return n.toLocaleString('fa-IR'); }catch(e){ return String(n); }
+}
+
+function daysPending(task){
+  if(task.done) return 0;
+  const base = task.startDate && task.startDate > task.createdDate ? task.startDate : task.createdDate;
+  if(!base) return 0;
+  const diffMs = dateFromKey(today) - dateFromKey(base);
+  return Math.max(0, Math.round(diffMs / (1000*60*60*24)));
+}
+
 function tasksForToday(dimKey){
   return (config.tasks[dimKey]||[]).filter(t => {
     if(t.startDate && t.startDate > today) return false; // scheduled for a later day, not visible yet
@@ -614,29 +606,6 @@ async function toggleTask(dimKey, taskId, checked){
 function renderHeader(){
   document.getElementById('dateFa').textContent = jalaliFull(new Date());
   document.getElementById('manifestNo').textContent = 'MANIFEST NO. ' + today.replace(/-/g,'');
-}
-
-function allChecked(){
-  // "cleared" stamp is habit-based only — tasks are open-ended and shouldn't block it
-  let total = 0, done = 0;
-  DIMENSIONS.forEach(d=>{
-    habitsForDate(d.key, today).forEach(it=>{
-      total++;
-      if(dayData.habitChecks[it.id]) done++;
-    });
-  });
-  return total>0 && done===total;
-}
-
-function updateStamp(){
-  const box = document.getElementById('stampBox');
-  if(allChecked()){
-    box.textContent = 'cleared';
-    box.className = 'stamp cleared';
-  } else {
-    box.textContent = 'pending';
-    box.className = 'stamp pending';
-  }
 }
 
 function renderHolds(){
@@ -680,7 +649,6 @@ function renderHolds(){
       row.querySelector('input').addEventListener('change', (e)=>{
         dayData.habitChecks[it.id] = e.target.checked;
         row.querySelector('span').classList.toggle('done', e.target.checked);
-        updateStamp();
         scheduleAutoSave();
       });
       row.querySelector('.del').addEventListener('click', ()=>{
@@ -688,7 +656,6 @@ function renderHolds(){
         delete dayData.habitChecks[it.id];
         saveConfig();
         renderHolds();
-        updateStamp();
       });
       card.appendChild(row);
     });
@@ -726,9 +693,12 @@ function renderHolds(){
     tasks.forEach(t=>{
       const row = document.createElement('div');
       row.className = 'item task-item';
+      const age = daysPending(t);
+      const ageBadge = (!t.done && age>0) ? `<span class="task-age ${age>=3?'warn':''}">${faNum(age)} روزه</span>` : '';
       row.innerHTML = `
         <input type="checkbox" ${t.done?'checked':''} data-id="${t.id}">
         <span class="${t.done?'done':''}">${t.text}</span>
+        ${ageBadge}
         <button class="del" data-id="${t.id}" data-dim="${d.key}">حذف</button>
       `;
       row.querySelector('input').addEventListener('change', async (e)=>{
@@ -781,7 +751,6 @@ function renderHolds(){
     console.error('render failed for dimension', d.key, err);
    }
   });
-  updateStamp();
 }
 
 async function getDayRatio(k){
@@ -794,42 +763,39 @@ async function getDayRatio(k){
   return total>0 ? done/total : 0;
 }
 
-const STREAK_THRESHOLD = 0.8; // a day "holds" the streak if the trailing 7-day average is >= 80%
+const STREAK_THRESHOLD = 0.8; // ratio at/above which a day's dot shows as fully "done" (green)
+
+function ratioToClass(ratio){
+  if(ratio <= 0) return '';
+  if(ratio >= STREAK_THRESHOLD) return 'full';
+  if(ratio >= 0.6) return 'r-high';
+  if(ratio >= 0.35) return 'r-mid';
+  return 'r-low';
+}
 
 async function renderWeek(){
   const strip = document.getElementById('weekStrip');
   strip.innerHTML = '<span class="week-label">۷ روز اخیر (کلیک برای جزئیات):</span>';
 
-  // fetch 13 days: the visible 7 + 6 extra so the rolling window has lookback
-  const allKeys = [];
-  for(let i=12;i>=0;i--){
+  const weekKeys = [];
+  for(let i=6;i>=0;i--){
     const d = new Date();
     d.setDate(d.getDate()-i);
-    allKeys.push(localDateKey(d));
+    weekKeys.push(localDateKey(d));
   }
-  const entries = await Promise.all(allKeys.map(async k => [k, await getDayRatio(k)]));
+  const entries = await Promise.all(weekKeys.map(async k => [k, await getDayRatio(k)]));
   const ratios = Object.fromEntries(entries);
 
-  allKeys.slice(-7).forEach(k=>{
+  weekKeys.forEach(k=>{
     const ratio = ratios[k];
     const dot = document.createElement('div');
-    dot.className = 'week-dot ' + (ratio>=STREAK_THRESHOLD ? 'full' : (ratio>0 ? 'partial' : ''));
+    dot.className = 'week-dot ' + ratioToClass(ratio);
     dot.textContent = jalaliDayNum(dateFromKey(k));
     dot.title = jalaliFull(dateFromKey(k));
     dot.style.cursor = 'pointer';
     dot.addEventListener('click', ()=> showDayModal(k));
     strip.appendChild(dot);
   });
-
-  // streak: walk backward from today; a day counts if the 7-day rolling
-  // average ending on that day is >= 80% — one off day no longer zeroes it out
-  let streak = 0;
-  for(let i=allKeys.length-1;i>=6;i--){
-    const window = allKeys.slice(i-6, i+1);
-    const avg = window.reduce((s,k)=>s+ratios[k],0) / window.length;
-    if(avg >= STREAK_THRESHOLD){ streak++; } else { break; }
-  }
-  document.getElementById('streakNum').textContent = streak;
 }
 
 function showScheduleModal(dimKey){
