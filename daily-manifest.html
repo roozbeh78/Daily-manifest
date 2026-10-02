@@ -217,6 +217,22 @@ body{
   font-family:'JetBrains Mono', monospace;font-size:9px;color:var(--green);
   border:1px solid var(--green);border-radius:4px;padding:1px 5px;margin-right:4px;
 }
+.sections-modal .add-row{margin:14px 0 18px;}
+.section-row{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:10px 0;border-bottom:1px dashed var(--line);
+}
+.section-row:last-child{border-bottom:none;}
+.section-row-title{font-size:13.5px;font-weight:600;}
+.section-row-meta{font-size:11px;color:var(--ink-soft);margin-top:2px;}
+.section-del{
+  border:1px solid var(--red);background:none;color:var(--red);border-radius:6px;
+  padding:6px 12px;font-family:inherit;font-size:11.5px;cursor:pointer;
+}
+.section-del:hover{background:var(--red);color:#fff;}
+.section-del:disabled{
+  border-color:var(--line);color:var(--ink-soft);cursor:not-allowed;background:none;
+}
 .schedule-modal .schedule-row{
   margin-bottom:12px;padding-bottom:12px;border-bottom:1px dashed var(--line);
 }
@@ -330,6 +346,7 @@ body{
   <div class="page-nav">
     <button class="page-tab active" id="navToday">امروز</button>
     <button class="page-tab" id="navPlanner">کارهای برنامه‌ریزی‌شده</button>
+    <button class="page-tab" id="navSections">مدیریت بخش‌ها</button>
   </div>
 
   <div id="todayView">
@@ -366,7 +383,8 @@ body{
 <div class="toast" id="toast"></div>
 
 <script>
-const DIMENSIONS = [
+// seed data for the original four sections — used only the first time config.dimensions is built
+const DEFAULT_DIMENSIONS = [
   {key:'professional', title:'حرفه‌ای', code:'PRO-01', defaults:[
     'یک قدم برای مستندسازی/فرایندی‌کردن مجموعه برداشتم',
     'وضعیت واردات/گمرک رو چک کردم',
@@ -385,6 +403,11 @@ const DIMENSIONS = [
     'یک گفتگوی معنادار با یکی از اعضای خانواده داشتم'
   ]}
 ];
+
+// DIMENSIONS always points at the SAME array object as config.dimensions (kept in sync by
+// ensureConfigDefaults and mutated in place when sections are added/removed) so every existing
+// DIMENSIONS.forEach(...) call site keeps working without needing to know about config.
+let DIMENSIONS = DEFAULT_DIMENSIONS.map(d=>({key:d.key, title:d.title, code:d.code}));
 
 let config = null; // {items:{key:[{id,text}]}}
 let today = null;  // 'YYYY-MM-DD'
@@ -508,12 +531,20 @@ function ensureConfigDefaults(){
     patched = true;
   }
 
+  // dimensions (sections) are now dynamic/config-backed — seed from the original four on first run
+  if(!Array.isArray(config.dimensions) || config.dimensions.length === 0){
+    config.dimensions = DEFAULT_DIMENSIONS.map(d=>({key:d.key, title:d.title, code:d.code}));
+    patched = true;
+  }
+  DIMENSIONS = config.dimensions; // same array object from here on — mutate in place to add/remove sections
+
   if(!config.habits || typeof config.habits !== 'object') config.habits = {};
   if(!config.tasks || typeof config.tasks !== 'object') config.tasks = {};
 
   DIMENSIONS.forEach(d=>{
-    if(!Array.isArray(config.habits[d.key]) || config.habits[d.key].length === 0){
-      config.habits[d.key] = d.defaults.map(t=>({id:uid(), text:t}));
+    if(!Array.isArray(config.habits[d.key])){
+      const seed = DEFAULT_DIMENSIONS.find(dd=>dd.key===d.key);
+      config.habits[d.key] = seed ? seed.defaults.map(t=>({id:uid(), text:t})) : [];
       patched = true;
     }
     if(!Array.isArray(config.tasks[d.key])){
@@ -522,6 +553,16 @@ function ensureConfigDefaults(){
     }
   });
   return patched;
+}
+
+function slugify(text){
+  const base = 'sec-' + text.trim().toLowerCase().replace(/[^a-z0-9ا-ی]+/gi,'').slice(0,12);
+  return (base.length>4 ? base : 'sec') + '-' + uid();
+}
+
+function nextSectionCode(){
+  const n = DIMENSIONS.length + 1;
+  return 'SEC-' + String(n).padStart(2,'0');
 }
 
 async function saveConfig(){
@@ -788,6 +829,78 @@ async function renderWeek(){
     dot.addEventListener('click', ()=> showDayModal(k));
     strip.appendChild(dot);
   });
+}
+
+function showSectionsModal(){
+  const overlay = document.createElement('div');
+  overlay.className = 'day-modal-overlay';
+
+  const render = ()=>{
+    let html = `
+      <div class="day-modal sections-modal">
+        <div class="day-modal-head">
+          <span>مدیریت بخش‌ها</span>
+          <button class="day-modal-close">✕</button>
+        </div>
+        <div class="add-row">
+          <input type="text" id="newSectionName" placeholder="اسم بخش جدید...">
+          <button id="addSectionBtn">افزودن</button>
+        </div>
+    `;
+    DIMENSIONS.forEach(d=>{
+      const habitCount = (config.habits[d.key]||[]).length;
+      const taskCount = (config.tasks[d.key]||[]).length;
+      const empty = habitCount===0 && taskCount===0;
+      html += `
+        <div class="section-row">
+          <div>
+            <div class="section-row-title">${d.title}</div>
+            <div class="section-row-meta">${habitCount} عادت، ${taskCount} کار</div>
+          </div>
+          <button class="section-del" data-key="${d.key}" ${empty?'':'disabled'}>${empty ? 'حذف' : 'خالی نیست'}</button>
+        </div>
+      `;
+    });
+    html += `</div>`;
+    overlay.innerHTML = html;
+
+    overlay.querySelector('.day-modal-close').addEventListener('click', ()=> overlay.remove());
+
+    const addSection = ()=>{
+      const input = document.getElementById('newSectionName');
+      const title = input.value.trim();
+      if(!title) return;
+      const key = slugify(title);
+      DIMENSIONS.push({key, title, code: nextSectionCode()});
+      config.habits[key] = [];
+      config.tasks[key] = [];
+      saveConfig();
+      render();
+      renderHolds();
+    };
+    document.getElementById('addSectionBtn').addEventListener('click', addSection);
+    document.getElementById('newSectionName').addEventListener('keydown', (e)=>{ if(e.key==='Enter') addSection(); });
+
+    overlay.querySelectorAll('.section-del').forEach(btn=>{
+      if(btn.disabled) return;
+      btn.addEventListener('click', ()=>{
+        const key = btn.dataset.key;
+        const dim = DIMENSIONS.find(d=>d.key===key);
+        if(!confirm(`مطمئنی می‌خوای بخش «${dim.title}» رو حذف کنی؟ این کار برگشت‌ناپذیره.`)) return;
+        const idx = DIMENSIONS.findIndex(d=>d.key===key);
+        if(idx>=0) DIMENSIONS.splice(idx,1);
+        delete config.habits[key];
+        delete config.tasks[key];
+        saveConfig();
+        render();
+        renderHolds();
+      });
+    });
+  };
+
+  render();
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e)=>{ if(e.target===overlay) overlay.remove(); });
 }
 
 function showScheduleModal(dimKey){
@@ -1083,6 +1196,7 @@ function attachListeners(){
 
   document.getElementById('navToday').addEventListener('click', ()=> switchView('today'));
   document.getElementById('navPlanner').addEventListener('click', ()=> switchView('planner'));
+  document.getElementById('navSections').addEventListener('click', showSectionsModal);
 }
 
 async function init(){
